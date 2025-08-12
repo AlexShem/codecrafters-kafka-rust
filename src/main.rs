@@ -34,6 +34,10 @@ fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
 
     writer.write_all(&message_size_response.to_be_bytes())?;
     writer.write_all(&correlation_id.to_be_bytes())?;
+    if request.request_api_version > 4 {
+        let unsupported_version: i16 = 35;
+        writer.write_all(&unsupported_version.to_be_bytes())?;
+    }
     writer.flush()?;
 
     Ok(())
