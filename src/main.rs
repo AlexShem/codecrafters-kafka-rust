@@ -1,6 +1,9 @@
+mod api_keys;
 mod requests;
+mod responses;
 
 use crate::requests::Request;
+use crate::responses::Response;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
 
@@ -29,15 +32,8 @@ fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
     let mut writer = BufWriter::new(stream);
 
     let request = Request::parse_request(&mut reader)?;
-    let correlation_id = request.correlation_id;
-    let message_size_response: i32 = 0;
-
-    writer.write_all(&message_size_response.to_be_bytes())?;
-    writer.write_all(&correlation_id.to_be_bytes())?;
-    if request.request_api_version > 4 {
-        let unsupported_version: i16 = 35;
-        writer.write_all(&unsupported_version.to_be_bytes())?;
-    }
+    let response = Response::generate_response(request);
+    writer.write_all(&response)?;
     writer.flush()?;
 
     Ok(())
