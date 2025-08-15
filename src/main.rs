@@ -6,6 +6,7 @@ use crate::requests::Request;
 use crate::responses::Response;
 use std::io::{BufReader, BufWriter, Write};
 use std::net::{TcpListener, TcpStream};
+use std::thread;
 
 fn main() -> anyhow::Result<()> {
     let listener = TcpListener::bind("127.0.0.1:9092")?;
@@ -13,9 +14,11 @@ fn main() -> anyhow::Result<()> {
     for stream in listener.incoming() {
         match stream {
             Ok(_stream) => {
-                if let Err(e) = handle_connection(_stream) {
-                    eprintln!("Connection error: {e}")
-                }
+                thread::spawn(move || {
+                    if let Err(e) = handle_connection(_stream) {
+                        eprintln!("Connection error: {e}")
+                    }
+                });
             }
             Err(e) => {
                 println!("error: {}", e);
@@ -31,10 +34,16 @@ fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
     let mut reader = BufReader::new(read_stream);
     let mut writer = BufWriter::new(stream);
 
-    let request = Request::parse_request(&mut reader)?;
-    let response = Response::generate_response(request);
-    writer.write_all(&response)?;
-    writer.flush()?;
-
-    Ok(())
+    loop {
+        match Request::parse_request(&mut reader) {
+            Ok(request) => {
+                let response = Response::generate_response(request);
+                writer.write_all(&response)?;
+                writer.flush()?;
+            }
+            Err(err) => {
+                return Err(err);
+            }
+        }
+    }
 }
