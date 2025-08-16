@@ -37,8 +37,9 @@ fn handle_connection(stream: TcpStream) -> anyhow::Result<()> {
     loop {
         match Request::parse_request(&mut reader) {
             Ok(request) => {
-                let response = Response::generate_response(request);
-                writer.write_all(&response)?;
+                let response = Response::new(request);
+                let bytes = response.to_bytes();
+                writer.write_all(&bytes)?;
                 writer.flush()?;
             }
             Err(err) => {

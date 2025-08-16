@@ -1,43 +1,39 @@
 use crate::api_keys::ApiKey;
 use crate::requests::Request;
+use bytes::{BufMut, BytesMut};
 
+#[derive(Debug)]
 pub struct Response {
-    #[allow(unused)]
-    pub message_size: i32,
     pub correlation_id: i32,
     pub error_code: i16,
     pub api_keys: Vec<ApiKey>,
 }
 
 impl Response {
-    pub fn generate_response(request: Request) -> bytes::Bytes {
+    pub fn new(request: Request) -> Self {
         let version = request.request_header.request_api_version;
         let error_code = if version <= 4 && version >= 0 { 0 } else { 35 };
 
-        let response = Self {
-            message_size: 0,
+        Self {
             correlation_id: request.request_header.correlation_id,
             error_code,
-            api_keys: vec![ApiKey::from_int(18)],
-        };
-
-        response.to_bytes()
+            api_keys: vec![ApiKey::from_int(18), ApiKey::from_int(75)],
+        }
     }
 
     pub fn to_bytes(&self) -> bytes::Bytes {
-        // let mut byte_buf = bytes::BytesMut::with_capacity(self.message_size as usize + 4);
-        let mut byte_buf = bytes::BytesMut::new();
+        let mut body_buf = BytesMut::new();
 
         // 2. Response header: correlation_id (4 bytes)
-        byte_buf.extend_from_slice(&self.correlation_id.to_be_bytes());
+        body_buf.extend_from_slice(&self.correlation_id.to_be_bytes());
 
         // 3. Response body
         // 3.1 Error code (2 bytes)
-        byte_buf.extend_from_slice(&self.error_code.to_be_bytes());
+        body_buf.extend_from_slice(&self.error_code.to_be_bytes());
 
         // 3.2 ApiVersion Compact Array
         // One byte to indicate the `array_length + 1`
-        byte_buf.extend_from_slice(&(1_i8 + 1_i8).to_be_bytes());
+        write_uvarint(&mut body_buf, (self.api_keys.len() as u32) + 1);
 
         for api_key in &self.api_keys {
             match api_key {
@@ -45,30 +41,51 @@ impl Response {
                     min_version,
                     max_version,
                 } => {
-                    byte_buf.extend_from_slice(&api_key.to_int().to_be_bytes());
-                    byte_buf.extend_from_slice(&min_version.to_be_bytes());
-                    byte_buf.extend_from_slice(&max_version.to_be_bytes());
-                    byte_buf.extend_from_slice(&0_i8.to_be_bytes()); // 0 tag buffer
+                    body_buf.extend_from_slice(&api_key.to_int().to_be_bytes());
+                    body_buf.extend_from_slice(&min_version.to_be_bytes());
+                    body_buf.extend_from_slice(&max_version.to_be_bytes());
+                    write_uvarint(&mut body_buf, 0);
+                }
+                ApiKey::DescribeTopicPartitions {
+                    min_version,
+                    max_version,
+                } => {
+                    body_buf.extend_from_slice(&api_key.to_int().to_be_bytes());
+                    body_buf.extend_from_slice(&min_version.to_be_bytes());
+                    body_buf.extend_from_slice(&max_version.to_be_bytes());
+                    write_uvarint(&mut body_buf, 0);
                 }
                 ApiKey::Unsupported => {
-                    byte_buf.extend_from_slice(&0_i8.to_be_bytes()); // 0 tag buffer
+                    write_uvarint(&mut body_buf, 0);
                 }
             }
         }
 
         // 3.3 Throttle time (4 byte)
-        byte_buf.extend_from_slice(&0_i32.to_be_bytes()); // 0 ms
+        body_buf.extend_from_slice(&0_i32.to_be_bytes()); // 0 ms
 
         // 3.4 Tag buffer
-        byte_buf.extend_from_slice(&0_i8.to_be_bytes()); // 0 tag buffer
+        write_uvarint(&mut body_buf, 0);
 
         // 1. Message size (4 bytes)
-        let body = byte_buf.freeze();
-        let message_size = body.len();
-        let mut response_bytes = bytes::BytesMut::new();
-        response_bytes.extend_from_slice(&(message_size as i32).to_be_bytes());
-        response_bytes.extend_from_slice(&body);
+        let body = body_buf.freeze();
+        let mut out = BytesMut::with_capacity(4 + body.len());
+        dbg!(&body.len());
+        dbg!(&body);
+        out.extend_from_slice(&(body.len() as i32).to_be_bytes());
+        out.extend_from_slice(&body);
 
-        response_bytes.freeze()
+        out.freeze()
+    }
+}
+
+fn write_uvarint(buf: &mut BytesMut, mut val: u32) {
+    loop {
+        if val < 0x80 {
+            buf.put_u8(val as u8);
+            break;
+        }
+        buf.put_u8(((val as u8) & 0x7F) | 0x80);
+        val >>= 7;
     }
 }

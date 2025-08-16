@@ -1,3 +1,4 @@
+use crate::api_keys::ApiKey;
 use anyhow::{bail, Result};
 use bytes::{Buf, Bytes, BytesMut};
 use std::io::{BufReader, Read};
@@ -11,7 +12,7 @@ pub struct Request {
 
 pub struct RequestHeader {
     #[allow(unused)]
-    pub request_api_key: i16,
+    pub request_api_key: ApiKey,
     pub request_api_version: i16,
     pub correlation_id: i32,
 }
@@ -55,7 +56,7 @@ impl RequestHeader {
         // let client_id = read_compact_string(message);
 
         Self {
-            request_api_key,
+            request_api_key: ApiKey::from_int(request_api_key),
             request_api_version,
             correlation_id,
         }
